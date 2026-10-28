@@ -49,6 +49,19 @@ canvas{width:100%;max-width:100%;height:auto;border-radius:4px;box-shadow:0 1px 
 .status{min-height:1.4em;font-weight:600;text-align:center}
 .status.ok{color:var(--ok)} .status.warn{color:var(--warn)}
 .note{margin:0;color:var(--muted);font-size:.92rem}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.save.alt{background:var(--panel);color:var(--accent);box-shadow:inset 0 0 0 3px var(--accent)}
+#printArea{display:none}
+@page{size:A4 landscape;margin:0}
+@media print{
+  html,body{background:#fff!important}
+  :root{padding:0!important}
+  .wrap{display:none!important}
+  #printArea{display:block}
+  .ppage{width:297mm;height:209mm;overflow:hidden;break-after:page;page-break-after:always}
+  .ppage:last-child{break-after:auto;page-break-after:auto}
+  .ppage img{width:100%;height:100%;display:block}
+}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .sub{display:grid;gap:4px;min-width:0}
 .sub label{font:700 .8rem var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
@@ -111,11 +124,13 @@ canvas{width:100%;max-width:100%;height:auto;border-radius:4px;box-shadow:0 1px 
   <canvas id="time-cv" width="842" height="595" aria-label="Time page preview"></canvas></div></section></div>
 
   <div class="summary" id="summary"></div>
-  <button class="save" id="save" type="button">Save PDF</button>
+  <div class="actions"><button class="save" id="save" type="button">Save PDF</button><button class="save alt" id="print" type="button">Print</button></div>
   <div class="status" id="status" role="status"></div>
   <p class="note">All slips print in bold block capitals, 2 per A4 landscape page, with a thick border to cut along. Size 100% is the largest that fits the slip. Switch off any slip you don't need. On a phone, Save PDF opens the share menu so you can send it straight to WhatsApp.</p>
-  <p class="note" style="text-align:right;font-size:.8rem">Version 11</p>
+  <p class="note" style="text-align:right;font-size:.8rem">Version 12</p>
 </div>
+
+<div id="printArea" aria-hidden="true"></div>
 
 <script>
 window.__showErr=function(m){var b=document.getElementById("boot");if(b){b.hidden=false;b.textContent="Problem starting the slip maker: "+m+". Send a screenshot of this message.";}};
@@ -238,6 +253,9 @@ function draw(id){
   const n=Math.min(2,state[id]?state[id].n:2);
   const L=text?layout(text,pct,id==="loc"):null;
   $(id+"-out").textContent=L?`${pct}% · letters ${(L.size*CAP*0.03528).toFixed(1)} cm tall`:`${pct}%`;
+  paintSlips(ctx,L,n);
+}
+function paintSlips(ctx,L,n){
   for(let r=0;r<n;r++){
     const y=slipTops[r];
     ctx.lineWidth=BORDER;ctx.strokeStyle="#000";ctx.strokeRect(PM,y,PW-2*PM,SH);
@@ -245,7 +263,8 @@ function draw(id){
     const s=L.size,block=L.lines.length*CAP*s+(L.lines.length-1)*LGAP*s,top=y+SH/2-block/2;
     ctx.font=`bold ${s}px Helvetica, Arial, sans-serif`;ctx.textAlign="center";ctx.textBaseline="alphabetic";
     ctx.fillStyle="#000";ctx.strokeStyle="#000";ctx.lineWidth=s*0.04;ctx.lineJoin="round";
-    L.lines.forEach((l,i)=>{const yy=top+CAP*s+i*(CAP+LGAP)*s;ctx.save();ctx.translate(PW/2,yy);ctx.scale(L.scale,1);ctx.fillText(l,0,0);ctx.strokeText(l,0,0);ctx.restore()});
+    L.lines.forEach((l,i)=>{const yy=top+CAP*s+i*(CAP+LGAP)*s,real=ctx.measureText(l).width||1,sc=measurer(l)*s*L.scale/real;
+      ctx.save();ctx.translate(PW/2,yy);ctx.scale(sc,1);ctx.fillText(l,0,0);ctx.strokeText(l,0,0);ctx.restore()});
   }
 }
 function drawAll(){ITEMS.forEach(it=>draw(it.id))}
@@ -284,6 +303,35 @@ function buildPdf(v){
 let dl=null;
 (async()=>{try{dl=await window.claude?.use?.("downloads")}catch(e){dl=null}})();
 
+function collect(st){
+  const v={date:textOf("date"),day:textOf("day"),loc:textOf("loc"),time:textOf("time"),size:{},items:{}};
+  ITEMS.forEach(it=>{v.size[it.id]=+$(it.id+"-size").value;if(state[it.id].on)v.items[it.id]=state[it.id].n});
+  const chosen=ITEMS.filter(it=>v.items[it.id]);
+  if(!chosen.length){st.className="status warn";st.textContent="Switch on at least one slip to print.";return null}
+  const missing=chosen.filter(it=>!v[it.id]).map(it=>it.name.toLowerCase());
+  if(missing.length){st.className="status warn";st.textContent="Fill in the "+missing.join(", ")+" first.";return null}
+  v.chosen=chosen;return v;
+}
+$("print").addEventListener("click",()=>{
+  const st=$("status");st.className="status";
+  const v=collect(st);if(!v)return;
+  st.textContent="Preparing pages...";
+  const area=$("printArea");area.innerHTML="";
+  const K=2.4,cv=document.createElement("canvas");cv.width=Math.round(PW*K);cv.height=Math.round(PH*K);const ctx=cv.getContext("2d");
+  const imgs=[];
+  v.chosen.forEach(it=>{
+    const L=layout(v[it.id],v.size[it.id],it.id==="loc"),total=v.items[it.id];
+    for(let k=0;k<total;k+=2){
+      ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle="#fff";ctx.fillRect(0,0,cv.width,cv.height);ctx.scale(K,K);
+      paintSlips(ctx,L,Math.min(2,total-k));
+      const pg=document.createElement("div");pg.className="ppage";const im=new Image();im.alt=it.name+" slips";im.src=cv.toDataURL("image/png");pg.appendChild(im);area.appendChild(pg);imgs.push(im);
+    }
+  });
+  Promise.all(imgs.map(im=>im.decode?im.decode().catch(()=>{}):Promise.resolve())).then(()=>{
+    st.className="status ok";st.textContent="Print dialog opened: "+imgs.length+(imgs.length===1?" page.":" pages.");
+    setTimeout(()=>window.print(),50);
+  });
+});
 $("save").addEventListener("click",async()=>{
   const st=$("status");st.className="status";
   const v={date:textOf("date"),day:textOf("day"),loc:textOf("loc"),time:textOf("time"),size:{},items:{}};
@@ -314,6 +362,7 @@ $("save").addEventListener("click",async()=>{
     st.textContent=e&&(e.code==="declined"||e.name==="AbortError")?"Save cancelled.":e&&e.code==="rate_limited"?"A save is already open. Finish it, then try again.":"Couldn't save the PDF here. Try again in the Claude app or on claude.ai.";
   }finally{$("save").disabled=false}
 });
+if(window.claude){$("print").hidden=true;$("save").parentNode.style.gridTemplateColumns="1fr"}
 $("boot").hidden=true;
 window.__ready=true;
 }
