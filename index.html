@@ -126,8 +126,8 @@ canvas{width:100%;max-width:100%;height:auto;border-radius:4px;box-shadow:0 1px 
   <div class="summary" id="summary"></div>
   <div class="actions"><button class="save" id="save" type="button">Save PDF</button><button class="save alt" id="print" type="button">Print</button></div>
   <div class="status" id="status" role="status"></div>
-  <p class="note">All slips print in bold block capitals, 2 per A4 landscape page, with a thick border to cut along. Size 100% is the largest that fits the slip. Switch off any slip you don't need. On a phone, Save PDF opens the share menu so you can send it straight to WhatsApp.</p>
-  <p class="note" style="text-align:right;font-size:.8rem">Version 12</p>
+  <p class="note">All slips print in bold block capitals, 2 per A4 landscape page, with a thick border to cut along. Size 100% is the largest that fits the slip. Switch off any slip you don't need. On a computer, Print opens the print dialog (choose your printer or Save as PDF). On a phone, Save PDF opens the share menu so you can send it to WhatsApp.</p>
+  <p class="note" style="text-align:right;font-size:.8rem">Version 13</p>
 </div>
 
 <div id="printArea" aria-hidden="true"></div>
@@ -352,7 +352,8 @@ $("save").addEventListener("click",async()=>{
     if(dl){await dl.save({filename:name,data:blob});}
     else{
       const file=new File([blob],name,{type:"application/pdf"});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});}
+      const mobile=(navigator.userAgentData&&navigator.userAgentData.mobile)||/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+      if(mobile&&navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});}
       else{const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);}
     }
     const pages=chosen.reduce((a,it)=>a+Math.ceil(v.items[it.id]/2),0);
@@ -362,6 +363,8 @@ $("save").addEventListener("click",async()=>{
     st.textContent=e&&(e.code==="declined"||e.name==="AbortError")?"Save cancelled.":e&&e.code==="rate_limited"?"A save is already open. Finish it, then try again.":"Couldn't save the PDF here. Try again in the Claude app or on claude.ai.";
   }finally{$("save").disabled=false}
 });
+const isMobile=(navigator.userAgentData&&navigator.userAgentData.mobile)||/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+if(!isMobile&&!window.claude){$("print").classList.remove("alt");$("save").classList.add("alt");$("save").parentNode.insertBefore($("print"),$("save"));$("save").textContent="Download PDF"}
 if(window.claude){$("print").hidden=true;$("save").parentNode.style.gridTemplateColumns="1fr"}
 $("boot").hidden=true;
 window.__ready=true;
